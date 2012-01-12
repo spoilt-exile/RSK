@@ -1,6 +1,8 @@
-;Photostamp v0.5 RSK
+;Photostamp v0.8 RSK (+ GEL support)
 ;
-;Photostamp is a part of RSK (RSS Script Kit)
+;==============================================================================================
+;                Данный код распространяется на условиях лицензии GNU GPLv3
+;==============================================================================================
 ;
 ;This program is free software; you can redistribute it and/or modify
 ;it under the terms of the GNU General Public License as published by
@@ -36,32 +38,76 @@
 ;ver. 0.5 (September 29 2010)
 ; - stamp control improvement;
 ;===============================================================================================================
+;ver. 0.7 (December 5 2010)
+; - GAL implementation;
+; - stamp and mark buffering while batch process;
+; - additional improvements;
+;===============================================================================================================
+;ver. 0.8 (February 14 2011)
+; - stable release;
+;===============================================================================================================
+;ver. 0.8 RSK (April 18 2011)
+; - unified procedure for stamp/mark saving;
+; - saving stamp and mark at the same time;
+;===============================================================================================================
 
-;Reveal call for external calling
-(define reveal-call FALSE)
+(define rsk-photostamp-version "Фотоштамп 0.8 RSK")
 
 ;Path variables
-(define g-mark-path (string-append gimp-directory rsk-sys-sep "patterns" rsk-sys-sep "rsk-watermark.pat"))
-(define g-stamp-path (string-append gimp-directory rsk-sys-sep "patterns" rsk-sys-sep "rsk-stamp.pat"))
+(define rsk-mark-path (string-append gimp-directory rsk-sys-sep "patterns" rsk-sys-sep "rsk-watermark.pat"))
+(define rsk-stamp-path (string-append gimp-directory rsk-sys-sep "patterns" rsk-sys-sep "rsk-stamp.pat"))
 
-;ps-create-mark
+;Global buffer images
+(define rsk-stamp-image)
+(define rsk-mark-image)
+
+;Global buffer layers
+(define rsk-stamp-layer)
+(define rsk-mark-layer)
+
+;rsk-create-mark
 ;Input variables:
 ;STRING - mark text;
 ;STRING - font name for marking;
 ;INTEGER - font size for marking;
 ;BOOLEAN - switch for showing final pattern;
-(define (ps-create-wmark text font size show_switch)
-(rsk-api-check)
+(define (rsk-create-automark text font size show_switch mk_backup_switch mk_backup_prefix mk_backup_path)
+
+  (rsk-begin-handle)
+  (define xcf-path)
+
   (let* (
 	(image (car (gimp-image-new 256 256 RGB)))
 	(old_fore (car (gimp-context-get-foreground)))
 	(text_layer 0)
+	(prefix)
 	)
 
+	(if (equal? mk_backup_prefix "")
+	  (set! prefix 
+	    (string-append 
+	    (number->string (cadddr (time))) 
+	    "h " 
+	    (number->string (cadddr (cdr (time)))) 
+	    "m " 
+	    (number->string (cadr (time))) 
+	    "." 
+	    (number->string (caddr (time))) 
+	    "." 
+	    (number->string (- (car (time)) 100)) 
+	    "_"
+	    )
+	  )
+	  (set! prefix (string-append mk_backup_prefix "_"))
+	)
+	(set! xcf-path (string-append mk_backup_path rsk-sys-sep prefix "rsk-mark-backup.xcf"))
 	(gimp-context-set-foreground '(255 255 255))
 	(set! text_layer (car (gimp-text-fontname image -1 0 0 text 5 TRUE size PIXELS font)))
 	(script-fu-util-image-resize-from-layer image text_layer)
-	(file-pat-save RUN-NONINTERACTIVE image text_layer g-mark-path g-mark-path "RSK-Watermark")
+	(if (= mk_backup_switch TRUE)
+	  (gimp-file-save 0 image text_layer xcf-path xcf-path)
+	)
+	(file-pat-save RUN-NONINTERACTIVE image text_layer rsk-mark-path rsk-mark-path "RSK-Watermark")
 	(gimp-patterns-refresh)
 	(gimp-context-set-foreground old_fore)
 	(if (= show_switch FALSE)
@@ -69,32 +115,45 @@
 	  (gimp-display-new image)
 	)
   )
+
+  (rsk-end-handle
+    (string-append
+    rsk-photostamp-version
+    "\n(Мастер создания меток)"
+    "\nТекст: " "\"" text "\""
+    "\nРезервная копия: " (if (= mk_backup_switch TRUE) (string-append "Есть\nПуть копии: " xcf-path) "Нет")
+    )
+  )
 )
 
-;ps-create-mask regestring
+;rsk-create-mask regestring
 (script-fu-register 
-"ps-create-wmark"
-_"<Image>/Filters/RSK R1/Фотоштамп Создать _метку"
-"Создать невидимую метку"
-"Гурейси Монтейро <guaracy.bm@gmail.com>\nНепочатов Станислав <spoilt_exile[at]mail.ru>"
-"Гурейси Монтейро"
-"7 Октября 2010"
+"rsk-create-automark"
+"<Image>/File/Create/Фотоштамп/Мастер с_оздания меток"
+"Создать невидимую метку в автоматическом режиме"
+(string-append "Guaracy Monteiro <guaracy.bm@gmail.com>\n" rsk-reg-author)
+"Guaracy Monteiro"
+rsk-reg-date
 ""
 SF-STRING		"Текст метки"			"Моя метка"
 SF-FONT			"Шрифт"				"Arial Bold"
 SF-ADJUSTMENT		"Кегль (в пикселях)"		'(18 2 200 1 10 0 1)
 SF-TOGGLE		"Просмотреть метку"		FALSE
+SF-TOGGLE		"Сохранить копию метки"		FALSE
+SF-STRING		"Префикс для копии"		""
+SF-DIRNAME		"Сохранить штамп в"		""
 )
 
-;ps-create-stamp
+;rsk-create-stamp
 ;Input variables:
 ;INTEGER - stamp width;
 ;INTEGER - stamp height;
 ;INTEGER - aspect preset number;
-(define (ps-create-stamp imw imh aspect)
-(rsk-api-check)
-(define image)
-(define layer)
+(define (rsk-create-uni imw imh aspect)
+
+  (rsk-begin-handle)
+  (define image)
+  (define layer)
   (if (> aspect 0)
     (cond
       ((= aspect 1) (set! imh (/ imw (/ 4 3))))
@@ -104,49 +163,129 @@ SF-TOGGLE		"Просмотреть метку"		FALSE
   )
   (set! image (car (gimp-image-new imw imh 0)))
   (set! layer (car (gimp-layer-new image imw imh 1 "layer" 100 NORMAL)))
-  (gimp-image-add-layer image layer -1)
+  (gel-image-insert-layer image layer -1)
   (gimp-display-new image)
+  (rsk-end-handle
+    (string-append
+    rsk-photostamp-version
+    "\n(Создание заготовки)"
+    "\nРазмер заготовки: " (number->string imw) "x" (number->string imh)
+    )
+  )
 )
 
-;ps-create-stamp regestring
+;rsk-create-stamp regestring
 (script-fu-register 
-"ps-create-stamp"
-_"<Image>/Filters/RSK R1/Фотоштамп Создать _штамп"
-"Создание штампа"
-"Непочатов Станислав <spoilt_exile[at]mail.ru>"
-"Непочатов Станислав"
-"7 Октября 2010"
+"rsk-create-uni"
+"<Image>/File/Create/Фотоштамп/Создать заготовку"
+"Создание заготовку штампа или метки"
+rsk-reg-author
+rsk-reg-copyright
+rsk-reg-date
 ""
 SF-VALUE		"Ширина"			"1280"
 SF-VALUE		"Высота"			"720"
 SF-OPTION		"Установить соотношение сторон"	'("Выключено" "4:3" "16:9" "16:10")
 )
 
-;ps-save-stamp
+;rsk-save-stamp
 ;Input variables:
 ;IMAGE - image to save;
 ;LAYER - layer to save;
-(define (ps-save-stamp image layer)
-(rsk-api-check)
-  (set! layer (car (gimp-image-merge-visible-layers image 0)))
-  (file-pat-save RUN-NONINTERACTIVE image layer g-stamp-path g-stamp-path "RSK-Stamp")
+;BOOLEAN - save stamp switch;
+;BOOLEAN - backup stamp switch;
+;STRING - stamp backup file prefix;
+;STRING - stamp backup file path;
+(define (rsk-save-uni image layer saver_opt st_backup_switch st_backup_prefix st_backup_path)
+
+  (rsk-begin-handle)
+  (define sep-image)
+  (define prefix)
+  (if (equal? st_backup_prefix "")
+    (set! prefix 
+      (string-append 
+      (number->string (cadddr (time)))
+      "h " 
+      (number->string (cadddr (cdr (time)))) 
+      "m " 
+      (number->string (cadr (time))) 
+      "." 
+      (number->string (caddr (time))) 
+      "." 
+      (number->string (- (car (time)) 100)) 
+      "_"
+      )
+    )
+    (set! prefix (string-append st_backup_prefix "_"))
+  )
+  (define xcf-path 
+    (string-append 
+    st_backup_path 
+    rsk-sys-sep prefix 
+    "rsk-" 
+    (cond
+      (
+	(= saver_opt 1)
+	"stamp"
+      )
+      (
+	(= saver_opt 2)
+	"mark"
+      )
+      (
+	(= saver_opt 3)
+	"uni"
+      )
+    )
+    "-backup.xcf"
+    )
+  )
+  (if (and (= saver_opt 0) (= st_backup_switch FALSE))
+    (rsk-quit-handle)
+  )
+  (if (= st_backup_switch TRUE)
+    (gimp-file-save 0 image layer xcf-path xcf-path)
+  )
+  (set! sep-image (car (gimp-image-duplicate image)))
+  (set! layer (car (gimp-image-merge-visible-layers sep-image 0)))
+  (if (or (= saver_opt 1) (= saver_opt 3))
+    (file-pat-save RUN-NONINTERACTIVE sep-image layer rsk-stamp-path rsk-stamp-path "RSK-Stamp")
+  )
+  (if (or (= saver_opt 2) (= saver_opt 3))
+    (file-pat-save RUN-NONINTERACTIVE sep-image layer rsk-mark-path rsk-mark-path "RSK-Watermark")
+  )
+  (gimp-image-delete sep-image)
   (gimp-patterns-refresh)
+  
+  (rsk-end-handle
+    (string-append
+    rsk-photostamp-version
+    "\n(Использование готового изображения)"
+    "\nСохранен: " 
+    (cond ((= saver_opt 1) "Штамп") ((= saver_opt 2) "Метка") ((= saver_opt 3) "Штамп и метка"))
+    (if (= st_backup_switch TRUE) (string-append "\nРезервная копия: " xcf-path) "")
+    )
+  )
 )
 
-;ps-save-stamp regestring
+;rsk-save-stamp regestring
 (script-fu-register 
-"ps-save-stamp"
-_"<Image>/Filters/RSK R1/Фотоштамп Со_хранить штамп"
-"Сохранение штампа для его дальнейшего использования"
-"Непочатов Станислав <spoilt_exile[at]mail.ru>"
-"Непочатов Станислав"
-"7 Октября 2010"
+"rsk-save-uni"
+"<Image>/File/Create/Фотоштамп/Использовать изображение"
+"Использовать текущее изображение как штамп или метку"
+rsk-reg-author
+rsk-reg-copyright
+rsk-reg-date
 "RGBA"
 SF-IMAGE		"Изображение"			0
 SF-DRAWABLE		"Слой"				0
+SF-OPTION		"Сохранить как"			'("Не сохранять" "Штамп" "Метка" "Штамп и метка")
+SF-TOGGLE		"Сохранить копию штампа"	FALSE
+SF-STRING		"Префикс для копии"		""
+SF-DIRNAME		"Сохранить штамп в"		""
 )
 
-;ps-apply-mark
+;rsk-apply-mark
 ;Input variables:
 ;IMAGE - process image;
 ;LAYER - process layer;
@@ -157,8 +296,12 @@ SF-DRAWABLE		"Слой"				0
 ;INTEGER - stamp opacity;
 ;BOOLEAN - invisible mark switch;
 ;BOOLEAN - double mark switch;
-(define (ps-apply-mark image layer st_switch st_percent st_off st_align st_mode st_opc imark_switch dmark_switch)
-(rsk-api-check)
+(define (rsk-apply-mark image layer st_switch st_percent st_off st_align st_mode st_opc imark_switch dmark_switch)
+
+  (if (= rsk-batch-call-state FALSE)
+    (rsk-begin-handle)
+  )
+
   (let* (
 	(old_pattern (car (gimp-context-get-pattern)))
 	(mark_layer)
@@ -176,21 +319,30 @@ SF-DRAWABLE		"Слой"				0
 	(st_size (* st_percent low_percent))
 	(st_x)
 	(st_y)
+	(st_blur_size (* low_percent 15))
 	)
 
 	(gimp-context-push)
 	(gimp-image-undo-group-start image)
-	(gimp-image-add-layer image copy_layer -1)
+	(gel-image-insert-layer image copy_layer -1)
 	(if (= st_switch TRUE)
 	  (if (= 1 (car (gimp-patterns-get-list "RSK-Stamp")))
 	    (begin
-	      (set! st_layer (car (gimp-file-load-layer 1 image g-stamp-path)))
-	      (gimp-image-add-layer image st_layer -1)
+	      (if (= rsk-batch-call-state TRUE)
+		(begin
+		  (set! st_layer (car (gimp-layer-new-from-drawable rsk-stamp-layer image)))
+		  (gel-image-insert-layer image st_layer -1)
+		)
+		(begin
+		  (set! st_layer (car (gimp-file-load-layer 1 image rsk-stamp-path)))
+		  (gel-image-insert-layer image st_layer -1)
+		)
+	      )
 	      (set! st_w (car (gimp-drawable-width st_layer)))
 	      (set! st_h (car (gimp-drawable-height st_layer)))
 	      (set! st_aspect (/ st_w st_h))
 	      (if (> st_w st_size)
-		(gimp-layer-scale-full st_layer st_size (/ st_size st_aspect) 1 3)
+		(gimp-layer-scale st_layer st_size (/ st_size st_aspect) 1)
 	      )
 
 	      (set! st_w (car (gimp-drawable-width st_layer)))
@@ -242,9 +394,9 @@ SF-DRAWABLE		"Слой"				0
 	      )
 	      (gimp-layer-set-opacity st_layer st_opc)
 	      (set! copy_layer (car (gimp-image-merge-down image st_layer 0)))
-	      (gimp-drawable-set-name copy_layer "Слой со штампом")
+	      (gel-item-set-name copy_layer "Слой со штампом")
 	    )
-	    (gimp-message "Текстура штампа не найдена.\nCоздайте необходимую текстуру:\n [Filters/RSK R1/Фотоштамп Создать штамп]\n")
+	    (gimp-message "Текстура штампа не найдена.\nCоздайте необходимую текстуру:\n [Файл/Создать/Фотоштамп/Создать заготовку]\n")
 	  )
 	)
 	(if (= imark_switch TRUE)
@@ -252,8 +404,8 @@ SF-DRAWABLE		"Слой"				0
 	    (begin
 	      (set! copy_mask (car (gimp-layer-create-mask copy_layer 5)))
 	      (set! mark_layer (car (gimp-layer-new image width height RGBA-IMAGE "Watermark" 3 NORMAL-MODE)))
-	      (gimp-image-add-layer image mark_layer -1)
-	      (gimp-context-set-pattern "PS-Watermark")
+	      (gel-image-insert-layer image mark_layer -1)
+	      (gimp-context-set-pattern "RSK-Watermark")
 	      (gimp-displays-flush image)
 	      (gimp-selection-all image)
 	      (gimp-edit-fill mark_layer PATTERN-FILL)
@@ -261,7 +413,7 @@ SF-DRAWABLE		"Слой"				0
 	      (if (= dmark_switch TRUE)
 		(begin
 		  (set! invmark_layer (car (gimp-layer-copy mark_layer TRUE)))
-		  (gimp-image-add-layer image invmark_layer -1)
+		  (gel-image-insert-layer image invmark_layer -1)
 		  (gimp-invert invmark_layer)
 		  (set! invmark_mask (car (gimp-layer-get-mask invmark_layer)))
 		  (gimp-invert invmark_mask)
@@ -271,27 +423,39 @@ SF-DRAWABLE		"Слой"				0
 	      (if (= dmark_switch TRUE)
 		(set! copy_layer (car (gimp-image-merge-down image invmark_layer 0)))
 	      )
-	      (gimp-drawable-set-name copy_layer "Защищенный слой")
-	      (gimp-selection-clear image)
+	      (gel-item-set-name copy_layer "Защищенный слой")
+	      (gimp-selection-none image)
 	      (gimp-context-set-pattern old_pattern)
 	    )
-	    (gimp-message "Текстура метки не найдена.\nCоздайте необходимую текстуру:\n [Filters/RSK R1/Фотоштамп Создать метку]\n")
+	    (gimp-message "Текстура метки не найдена.\nCоздайте необходимую текстуру:\n [Файл/Создать/Фотоштамп/Мастер создания меток]\n")
 	  )
 	)
 	(gimp-image-undo-group-end image)
 	(gimp-context-pop)
 	(gimp-displays-flush)
   )
+
+  (if (= rsk-batch-call-state FALSE)
+    (rsk-end-handle
+      (string-append
+      rsk-photostamp-version
+      "\n(Применение штампов и меток)"
+      (if (= st_switch TRUE) (string-append "\nШтамп: ЕСТЬ\nПрозрачность штампа: " (number->string st_opc)) "")
+      (if (= imark_switch TRUE) (string-append "\nМетка: ЕСТЬ" (if (= dmark_switch TRUE) "\nДвойная метка: ЕСТЬ" "")) "")
+      )
+    )
+  )
+
 )
 
-;ps-apply-mark regestring
+;rsk-apply-mark regestring
 (script-fu-register 
-"ps-apply-mark"
-_"<Image>/Filters/RSK R1/Фотоштамп _Применить метки"
+"rsk-apply-mark"
+(string-append rsk-reg-defpath "Фотоштамп _Применить метки")
 "Пометка изображения с помощью штампов и меток"
-"Гурейси Монтейро <guaracy.bm@gmail.com>\nНепочатов Станислав <spoilt_exile[at]mail.ru>"
-"Гурейси Монтейро"
-"7 Октября 2010"
+(string-append "Guaracy Monteiro <guaracy.bm@gmail.com>\n" rsk-reg-author)
+"Guaracy Monteiro"
+rsk-reg-date
 "RGB,RGBA*"
 SF-IMAGE		"Изображение"			0
 SF-DRAWABLE		"Слой"				0
@@ -310,49 +474,52 @@ SF-TOGGLE		"Отметить невидимой меткой"	FALSE
 SF-TOGGLE		"Двойная метка"			TRUE
 )
 
-;ps-reveal-mark
+;rsk-reveal-mark
 ;Input variables:
 ;IMAGE - process image;
 ;LAYER - process layer;
 ;LAYER - original layer (without mark);
-(define (ps-reveal-mark image layer orig_layer post)
-(rsk-api-check)
+(define (rsk-reveal-mark image layer orig_layer post)
+
+  (rsk-begin-handle)
+
   (let* (
 	(copy_layer (car (gimp-layer-copy orig_layer FALSE)))
 	(over_layer (car (gimp-layer-copy layer FALSE)))
 	)
 
-	(if (= reveal-call FALSE)
-	  (gimp-image-undo-group-start image)
-	)
-	(gimp-image-add-layer image copy_layer -1)
-	(gimp-image-add-layer image over_layer -1)
+	(gimp-image-undo-group-start image)
+	(gel-image-insert-layer image copy_layer -1)
+	(gel-image-insert-layer image over_layer -1)
 	(gimp-layer-set-mode over_layer 20)
 	(set! over_layer (car (gimp-image-merge-down image over_layer 0)))
 	(plug-in-c-astretch 1 image over_layer)
-	(gimp-drawable-set-name over_layer "Проявленная метка")
+	(gel-item-set-name over_layer "Проявленная метка")
 	(gimp-desaturate-full over_layer 1)
 	(if (= post TRUE)
 	  (gimp-levels over_layer 0 25 100 1.0 0 255)
 	)
-	(if (= reveal-call TRUE)
-	  (gimp-image-raise-layer-to-top image over_layer)
-	)
 	(gimp-displays-flush image)
-	(if (= reveal-call FALSE)
-	  (gimp-image-undo-group-end image)
-	)
+	(gimp-image-undo-group-end image)
   )
+
+  (rsk-end-handle 
+    (string-append
+    rsk-photostamp-version
+    "\n(Проявка метки)"
+    )
+  )
+
 )
 
-;ps-reveal-mark regestring
+;rsk-reveal-mark regestring
 (script-fu-register 
-"ps-reveal-mark"
-_"<Image>/Filters/RSK R1/Фотоштамп Про_явить метку"
+"rsk-reveal-mark"
+(string-append rsk-reg-defpath "Фотоштамп Про_явить метку")
 "Проявить невидимую метку"
-"Непочатов Станислав <spoilt_exile[at]mail.ru>"
-"Непочатов Станислав"
-"7 Октября 2010"
+rsk-reg-author
+rsk-reg-copyright
+rsk-reg-date
 "RGB,RGBA*"
 SF-IMAGE		"Изображение"			0
 SF-DRAWABLE		"Слой"				0
@@ -360,49 +527,13 @@ SF-DRAWABLE		"Выбрать слой с оригиналом"	5
 SF-TOGGLE		"Постобработка метки"		FALSE
 )
 
-(define (ps-reveal-image image prc_layer org_name post)
-(rsk-api-check)
-  (let* (
-	(org_layer (car (gimp-file-load-layer 1 image org_name)))
-	(org_h (car (gimp-drawable-height org_layer)))
-	(org_w (car (gimp-drawable-width org_layer)))
-	(prc_h (car (gimp-drawable-height prc_layer)))
-	(prc_w (car (gimp-drawable-width prc_layer)))
-	)
+(define (rsk-batch-mark dir_in input_format dir_out out_format st_switch st_percent st_off st_align st_mode st_opc imark_switch dmark_switch resize_switch resize_value)
 
-	(gimp-image-undo-group-start image)
-	(if (or (= org_h prc_h) (= org_w prc_w))
-	  (begin
-	    (gimp-image-add-layer image org_layer -1)
-	    (gimp-image-lower-layer image org_layer)
-	    (set! reveal-call TRUE)
-	    (ps-reveal-mark image prc_layer org_layer post)
-	    (set! reveal-call FALSE)
-	  )
-	  (gimp-message "Размеры изображений не одинаковы. Проявление метки невозможно.")
-	)
-	(gimp-image-undo-group-end image)
-  )
-)
+  (rsk-begin-handle)
+  (set! rsk-batch-call-state TRUE)
+  (define pr-counter)
 
-;ps-reveal-image regestring
-(script-fu-register 
-"ps-reveal-image"
-_"<Image>/Filters/RSK R1/Фотоштамп Проявить и_зображение"
-"Проявить невидимую метку из файла изображения"
-"Непочатов Станислав <spoilt_exile[at]mail.ru>"
-"Непочатов Станислав"
-"7 Октября 2010"
-"RGB,RGBA*"
-SF-IMAGE		"Изображение"			0
-SF-DRAWABLE		"Слой"				0
-SF-FILENAME 		"Сравниваемое изображение" 	""
-SF-TOGGLE		"Постобработка метки"		FALSE
-)
-
-(define (ps-batch-mark dir_in input_format dir_out out_format st_switch st_percent st_off st_align st_mode st_opc imark_switch dmark_switch resize_switch resize_dimension resize_value)
-(rsk-api-check)
-(define input-ext)
+  (define input-ext)
   (cond
     ((= input_format 0) (set! input-ext "*"))
     ((= input_format 1) (set! input-ext "[jJ][pP][gG]"))
@@ -423,6 +554,25 @@ SF-TOGGLE		"Постобработка метки"		FALSE
 	(filelist (cadr (file-glob pattern 1)))
 	(run_mode 1)
 	)
+
+	(set! pr-counter (length filelist))
+
+	;Creating buffers
+	(if (= (car (gimp-patterns-get-list "RSK-Stamp")) TRUE)
+	  (begin
+	    (set! rsk-stamp-image (car (gimp-file-load 1 rsk-stamp-path rsk-stamp-path)))
+	    (set! rsk-stamp-layer (car (gimp-image-get-active-layer rsk-stamp-image)))
+	  )
+	  (gimp-message "Текстура штампа не найдена.\nCоздайте необходимую текстуру:\n [Filters/RSS/Фотоштамп Создать штамп]\n")
+	)
+	(if (= (car (gimp-patterns-get-list "RSK-Watermark")) TRUE)
+	  (begin
+	    (set! rsk-mark-image (car (gimp-file-load 1 rsk-mark-path rsk-mark-path)))
+	    (set! rsk-mark-layer (car (gimp-image-get-active-layer rsk-mark-image)))
+	  )
+	  (gimp-message "Текстура метки не найдена.\nCоздайте необходимую текстуру:\n [Filters/RSS/Фотоштамп Создать метку]\n")
+	)
+
 	(while (not (null? filelist))
 	  (let* (
 		(cur_target (car filelist))
@@ -430,8 +580,8 @@ SF-TOGGLE		"Постобработка метки"		FALSE
 		(imh (car (gimp-image-height image)))
 		(imw (car (gimp-image-width image)))
 		(aspect_ratio (/ imw imh))
-		(rs_imh (if (= resize_dimension 0) resize_value (/ resize_value aspect_ratio)))
-		(rs_imw (if (= resize_dimension 0) (* resize_value aspect_ratio) resize_value))
+		(rs_imh (if (> imh imw) resize_value (/ resize_value aspect_ratio)))
+		(rs_imw (if (> imh imw) (* resize_value aspect_ratio) resize_value))
 		(srclayer)
 		(filename (car (gimp-image-get-filename image)))
 		(target_out)
@@ -443,17 +593,21 @@ SF-TOGGLE		"Постобработка метки"		FALSE
 		(set! srclayer (car (gimp-image-flatten image)))
 		(if (= resize_switch TRUE)
 		  (begin
-		    (gimp-image-scale-full image rs_imw rs_imh 2)
-		    (set! origin_out (string-append dir_out "/" file "_оригинал." out-ext))
-		    (cond
-		      ((= out_format 0) (file-jpeg-save 1 image srclayer origin_out origin_out 1 0 1 1 "" 2 1 0 0))
-		      ((= out_format 1) (file-png-save-defaults 1 image srclayer origin_out origin_out))
-		      ((= out_format 2) (file-tiff-save 1 image srclayer origin_out origin_out 1))
-		      ((= out_format 3) (file-bmp-save 1 image srclayer origin_out origin_out))
+		    (gimp-image-scale image rs_imw rs_imh)
+		    (if (= imark_switch TRUE)
+		      (begin
+			(set! origin_out (string-append dir_out "/" file "_оригинал." out-ext))
+			(cond
+			  ((= out_format 0) (file-jpeg-save 1 image srclayer origin_out origin_out 1 0 1 1 "" 2 1 0 0))
+			  ((= out_format 1) (file-png-save-defaults 1 image srclayer origin_out origin_out))
+			  ((= out_format 2) (file-tiff-save 1 image srclayer origin_out origin_out 1))
+			  ((= out_format 3) (file-bmp-save 1 image srclayer origin_out origin_out))
+			)
+		      )
 		    )
 		  )
 		)
-		(ps-apply-mark image srclayer st_switch st_percent st_off st_align st_mode st_opc imark_switch dmark_switch)
+		(rsk-apply-mark image srclayer st_switch st_percent st_off st_align st_mode st_opc imark_switch dmark_switch)
 		(set! res_layer (car (gimp-image-merge-visible-layers image 0)))
 		(set! target_out (string-append dir_out "/" file "_защищено." out-ext))
 		(cond
@@ -466,17 +620,36 @@ SF-TOGGLE		"Постобработка метки"		FALSE
 	  )
 	  (set! filelist (cdr filelist))
 	)
+
+	;Delete buffers
+	(gimp-image-delete rsk-stamp-image)
+	(gimp-image-delete rsk-mark-image)
+
   )
+  
+  (set! rsk-batch-call-state FALSE)
+  (rsk-end-handle
+    (string-append
+    rsk-photostamp-version
+    "\n(Пакетный режим)"
+    "\nПапка-источник: " dir_in
+    "\nПапка-назначение: " dir_out
+    "\nКоличество файлов: " (number->string pr-counter)
+    (if (= st_switch TRUE) (string-append "\nШтамп: ЕСТЬ\nПрозрачность штампа: " (number->string st_opc)) "")
+    (if (= imark_switch TRUE) (string-append "\nМетка: ЕСТЬ" (if (= dmark_switch TRUE) "\nДвойная метка: ЕСТЬ" "")) "")
+    )
+  )
+
 )
 
-;ps-batch-mark regestring
+;rsk-batch-mark regestring
 (script-fu-register 
-"ps-batch-mark"
-_"<Image>/Filters/RSK R1/Фотоштамп Пакетный режим"
+"rsk-batch-mark"
+(string-append rsk-reg-defpath "Фотоштамп Пакетный режим")
 "Пометка изображений в пакетном режиме"
-"Непочатов Станислав <spoilt_exile[at]mail.ru>"
-"Непочатов Станислав"
-"7 Октября 2010"
+rsk-reg-author
+rsk-reg-copyright
+rsk-reg-date
 ""
 SF-DIRNAME		"Каталог-источник"		""
 SF-OPTION		"Входной формат"		'(
@@ -506,9 +679,5 @@ SF-ADJUSTMENT		"Непрозрачность штампа"		'(100 0 100 10 25 1 
 SF-TOGGLE		"Отметить невидимой меткой"	FALSE
 SF-TOGGLE		"Двойная метка"			TRUE
 SF-TOGGLE		"Изменить размеры изображения"	FALSE
-SF-OPTION		"Использовать"			'(
-							"Высоту"
-							"Ширину"
-							)
-SF-VALUE		"Изменить до"			"1280"
+SF-VALUE		"Изменить до (большая сторона)"	"1280"
 )

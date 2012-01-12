@@ -1,77 +1,82 @@
-;Split Studio v3.0r3 RSK
+;Split Studio ver. 3.0r4 RSK (+ GEL support)
 ;
-;Split Studio is a part of RSK (RSS Script Kit)
+;==============================================================================================
+;                  Данный код распространяется на условиях лицензии Free
+;==============================================================================================
 ;
-;Извлечение масок светлых и темных участков изображения с последующей тонировкой в разные оттенки.
-;История версий:
+;Extract masks of light and dark areas of the image and tone them into two different colors.
+;Version history:
 ;==================================================================
-;ver. 0.1а (Сентябрь 2009)
-; - нерабочий скрипт;
+;ver. 0.1а (September 2009)
+; - broken script;
 ;==================================================================
-;ver. 0.3 (Сентябрь 2009)
-; - рабочий скрипт, только извлечение масок;
+;ver. 0.3 (September 2009)
+; - working script, only with mask extracting;
 ;==================================================================
-;ver. 0.5 (Сентябрь 2009)
-; - релиз скрипта;
+;ver. 0.5 (September 2009)
+; - script's release;
 ;==================================================================
-;ver. 0.7 (Сентябрь 2009)
-; - некоторые изменения в процедурах скрипта;
+;ver. 0.7 (September 2009)
+; - some changes in script's procedures;
 ;==================================================================
-;ver. 1.0 (Сентябрь 2009)
-; - дополнительные выражения для контроля уровней;
-; - поддержка работы с видимым;
+;ver. 1.0 (September 2009)
+; - additional levels expression;
+; - work with visible;
 ;==================================================================
-;ver. 2.0 (23 Октябра 2009)
-; - добавлен контроль над прозрачностью слоев;
+;ver. 2.0 (23th October 2009)
+; - added controls of the mask blending;
 ;==================================================================
-;ver. 2.2 (7 Декабря 2009)
-; - удаление ненужных процедур;
-; - оптимизация интерфейса;
-; - управление влиянием на контраст;
-; - поддержка стека отмены;
-; - первый публичный релиз;
+;ver. 2.2 (7th December 2009)
+; - remove some useless procedures;
+; - interface optimization;
+; - affect on contrast control;
+; - undo/rebo support;
+; - first public release;
 ;==================================================================
-;ver. 2.4 (15 Января 2010) #тестовый релиз (не публиковался)
-; - более быстрое сведение готовых слоев;
-; - поиск маски-источника (#SPL);
+;ver. 2.4 (15th January 2010) #development release
+; - faster layers merging;
+; - source mask searching (#SPL);
 ;==================================================================
-;ver. 3.0 (22 Января 2010)
-; - оптимизация структуры скрипта;
-; - опциональное создание контрастирующего слоя;
-; - обесцвечивание подслоя (опционально);
+;ver. 3.0 (22th January 2010)
+; - optimization in script's structure;
+; - optional affect layer creation;
+; - sublayer desaturation (optional);
 ;==================================================================
-;ver. 3.0r1 (25 Февраля 2010)
-; - переработка указания маски-источника;
+;ver. 3.0r1 (25th February 2010)
+; - redesign source mask selection;
 ;==================================================================
-;ver. 3.0r2 (13 Марта 2010)
-; - исправление для отмены;
+;ver. 3.0r2 (13 March 2010)
+; - bugfix for undo/rebo support;
 ;==================================================================
-;ver. 3.0r3 (30 Марта 2010)
-; - смена имени SpliX на Split Studio, по причине конфликта имен;
-; - смена пути в меню;
+;ver. 3.0r3 (30 March 2010)
+; - change name from SpliX to Split Studio (name conflict);
+; - change default menu path;
+;==================================================================
+;ver. 3.0r4 (31 October 2010)
+; - GAL API implementation;
 ;==================================================================
 
-;Список входных переменных:
-;image - обрабатываемое изображение;
-;sEdge - сдвиг границы маски;
-;sRez - ширина диапозона в маске;
-;sLight - цвет для светлого слоя;
-;sDark - цвет для темного слоя;
-;lightboost - дополнительное усиление насыщенности светлого слоя;
-;opcLight - управление прозрачностью светлого слоя;
-;opcDark - управление прозрачностью темного слоя;
-;aff - управление контрастирующим слоем;
-;mask_custom - переключатель на режим пользовательской маски;
-;mask_def - слой с маской-источником;
-;srcswitch - включение режима сохранения процедурных слоев;
-;viz - включение режима работы с видимым;
-;des - включение обесцвечивания подслоя;
+;List of input variables:
+;image - processed image;
+;sEdge - offset of the mask edge;
+;sRez - width of the range in the mask;
+;sLight - color for light mask;
+;sDark - color for dark mask;
+;lightboost - additional saturation for light area of the result image;
+;opcLight - control for blending light mask;
+;opcDark - control for blending dark nask;
+;aff - control affection on contrast of the result image;
+;mask_custom - custom mask mode switch;
+;mask_def - layer with custom mask;
+;srcswitch - toggle for saving source layers;
+;viz - toggle for working with visible;
+;des - toggle for sublayer's desaturation;
 (define (rsk-split3 image sEdge sRez sLight sDark lightboost opcLight opcDark aff mask_custom mask_def srcswitch viz des)
 
-(rsk-api-check)
+  (rsk-begin-handle)
 
-;Начало группировки действий
-(gimp-image-undo-group-start image)
+  ;Undo group start
+  (gimp-image-undo-group-start image)
 
   (let* (
 	(sublayer (car (rsk-split3-source-handle image viz srcswitch)))
@@ -87,7 +92,7 @@
 	(reslayer)
 	)
 
-	;Проверка диапазона переменых и поправка
+	;Checking and fix variables
 	(if (> high-input 255)
 	  (set! high-input 255)
 	)
@@ -95,37 +100,37 @@
 	  (set! low-input 0)
 	)
 
-	;Секция обесцвечивания
+	;Desaturation section
 	(if (= des TRUE)
 	  (gimp-desaturate sublayer)
 	)
-	(gimp-image-add-layer image dark -1)
-	(gimp-image-add-layer image light -1)
-	(gimp-drawable-set-name light "Светлый тон")
-	(gimp-drawable-set-name dark "Темный тон")
+	(gel-image-insert-layer image dark -1)
+	(gel-image-insert-layer image light -1)
+	(gel-item-set-name light "Светлый тон")
+	(gel-item-set-name dark "Темный тон")
 
-	;Получение маски и источника контрастирующего слоя
+	;Getting mask and affect source
 	(set! mask-aff (rsk-split3-mask-handle image sublayer mask_def mask_custom))
 	(set! lightmask (car mask-aff))
 	(set! aff-src (cadr mask-aff))
 
-	;секция управления контрастом
+	;affection section
 	(if (> aff 0)
 	  (begin
 	    (set! affect (car (gimp-layer-copy aff-src FALSE)))
-	    (set! aff-state (car (gimp-layer-get-visible affect)))
+	    (set! aff-state (car (gel-item-get-visible affect)))
 
-	    ;проверка виидимости
+	    ;cheking visibility
 	    (if (= aff-state FALSE)
-	      (gimp-layer-set-visible affect TRUE)
+	      (gel-item-set-visible affect TRUE)
 	    )
-	    (gimp-image-add-layer image affect -1)
-	    (gimp-drawable-set-name affect "Контраст")
+	    (gel-image-insert-layer image affect -1)
+	    (gel-item-set-name affect "Контраст")
 	    (gimp-layer-set-mode affect 5)
 	    (gimp-desaturate affect)
 	    (gimp-levels affect 0 low-input high-input 1.0 0 255)
 	    (gimp-layer-set-opacity affect aff)
-	    (gimp-image-lower-layer image affect)
+	    (gel-image-lower-item image affect)
 	  )
 	)
 	(gimp-layer-add-mask light lightmask)
@@ -138,7 +143,7 @@
 	(gimp-layer-set-opacity light opcLight)
 	(gimp-layer-set-opacity dark opcDark)
 	
-	;финальное сведение слоев
+	;final merging
 	(if (= srcswitch FALSE)
 	    (begin
 		(set! reslayer (car (gimp-image-merge-down image dark 0)))
@@ -146,26 +151,36 @@
 		  (set! reslayer (car (gimp-image-merge-down image affect 0)))
 		)
 		(set! reslayer (car (gimp-image-merge-down image light 0)))
-		(gimp-drawable-set-name reslayer "Результат")
+		(gel-item-set-name reslayer "Результат")
 	    )
 	)
 
-	;Обновление изображения
+	;Display flushing
 	(gimp-displays-flush)
   )
 
-;Завершение группировки действий
-(gimp-image-undo-group-end image)
+  ;end of the undo group
+  (gimp-image-undo-group-end image)
+
+  (rsk-end-handle
+    (string-append
+    "Split Studio v3.0r4 RSK"
+    "\nВлияние на контраст: " (number->string aff)
+    (if (= mask_custom TRUE) "\nПользовательская маска активирована" "")
+    (if (= srcswitch TRUE) "\nПромежуточный слои сохраненны" "\nСлои совмещены")
+    (if (= viz TRUE) "\nИсточник = Видимое" "\nИсточник = Копия")
+    )
+  )
 
 )
 
 (script-fu-register
 "rsk-split3"
-"Spli_t Studio 3"
+(string-append rsk-reg-defpath "Раздельное тонирование")
 "Тонировка светлых и темных участков изображения в разные тона"
-"Непочатов Станислав"
-"Свободная лицензия"
-"7 Октября 2010"
+rsk-reg-author
+(string-append rsk-reg-copyright rsk-reg-license)
+rsk-reg-date
 "*"
 SF-IMAGE	"Изображение"			0
 SF-ADJUSTMENT	"Сдвиг границы"			'(0 -120 120 10 30 1 0)
@@ -183,21 +198,17 @@ SF-TOGGLE	"Работать с видимым"		FALSE
 SF-TOGGLE	"Обесцвечивание подслоя"	FALSE
 )
 
-(script-fu-menu-register
-"rsk-split3"
-_"<Image>/Filters/RSK R1"
-)
-
 ;rsk-split3-source-handle
-;СЛУЖЕБНАЯ ПРОЦЕДУРА
-;Список входящих переменных:
-;image - обрабатываемое изображение;
-;viz - включение режима работы с видимым;
-;srcswitch - включение режима сохранения процедурных слоев;
-;Список возвращаемых переменных:
-;exit - (LAYER) готовый слой-источник для основного скрипта;
+;SERVICE PROCEDURE
+;List of input variables:
+;image - processed image;
+;viz - toggle for working with visible;
+;srcswitch - toggle for saving source layers;
+;List of output variables:
+;exit - (layer) proper source layer for main script;
 (define (rsk-split3-source-handle image viz srcswitch)
-(define exit)
+
+  (define exit)
   (let* (
 	(active (car (gimp-image-get-active-layer image)))
 	(exit-layer)
@@ -211,41 +222,43 @@ _"<Image>/Filters/RSK R1"
 	      )
 	    )
 	    (gimp-floating-sel-to-layer exit-layer)
-	    (gimp-drawable-set-name exit-layer "Источник = Видимое")
-	    (gimp-image-raise-layer-to-top image exit-layer)
+	    (gel-item-set-name exit-layer "Источник = Видимое")
+	    (gel-image-raise-item-to-top image exit-layer)
 	  )
 	  (begin
 	    (set! exit-layer (car (gimp-layer-copy active FALSE)))
-	    (gimp-image-add-layer image exit-layer -1)
-	    (gimp-drawable-set-name exit-layer "Источник = Копия")
+	    (gel-image-insert-layer image exit-layer -1)
+	    (gel-item-set-name exit-layer "Источник = Копия")
 	  )
 	)
 	(set! exit exit-layer)
   )
-(cons exit '())
+  (cons exit '())
 )
 
 ;rsk-split3-mask-handle
-;СЛУЖЕБНАЯ ПРОЦЕДУРА
-;Список входящих переменных:
-;image - обрабатываемое изображение;
-;imput-layer - слой по умолчанию;
-;def_layer - слой указынный пользователем;
-;mask_custom - режим пользовательской маски;
-;список возвращаемых переменных:
-;list - (LIST) готовый список с маской (CHANNEL) и со слоем (LAYER);
+;SERVICE PROCEDURE
+;List of input variables:
+;image - processed image;
+;imput-layer - layer by default;
+;def_layer - layer defined by user;
+;mask_custom - custom mask mode;
+;List of output variables:
+;list - (LIST) result list with exit mask (CHANNEL) and exit layer (LAYER);
 (define (rsk-split3-mask-handle image input_layer def_layer mask_custom)
-(define o-mask 0)
-(define o-layer 0)
-(if (= mask_custom TRUE)
-  (begin
-    (set! o-layer def_layer)
-    (set! o-mask (car (gimp-layer-create-mask def_layer 5)))
+
+  (define o-mask 0)
+  (define o-layer 0)
+  (if (= mask_custom TRUE)
+    (begin
+      (set! o-layer def_layer)
+      (set! o-mask (car (gimp-layer-create-mask def_layer 5)))
+    )
+    (begin
+      (set! o-layer input_layer)
+      (set! o-mask (car (gimp-layer-create-mask input_layer 5)))
+    )
   )
-  (begin
-    (set! o-layer input_layer)
-    (set! o-mask (car (gimp-layer-create-mask input_layer 5)))
-  )
-)
-(list o-mask o-layer)
+  (list o-mask o-layer)
+
 )
